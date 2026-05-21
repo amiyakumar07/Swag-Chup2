@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/swagchup_logo_1779279735712"
+        android:drawable="@drawable/app_logo_foreground_1779362816411"
         android:gravity="center" />
 </layer-list>

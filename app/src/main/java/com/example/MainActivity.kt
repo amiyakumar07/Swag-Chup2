@@ -150,6 +150,7 @@ fun MainAppScreen(
     var isSplashVisible by remember { mutableStateOf(true) }
     var showToolkitDialog by remember { mutableStateOf(false) }
     var showBentoDashboard by remember { mutableStateOf(true) }
+    var currentTab by remember { mutableStateOf("home") }
 
     // Backup splash auto-fade after 4 seconds to protect users against laggy networks
     LaunchedEffect(Unit) {
@@ -177,74 +178,147 @@ fun MainAppScreen(
     // Helper to safely issue downloads (supports: Normal URLs, Base64 Data URLs, Blobs)
     val handleDownloadAction = remember(context, webViewInstance) {
         { url: String, userAgent: String, contentDisposition: String, mimetype: String ->
-            if (url.startsWith("data:")) {
-                // Base64 Local Data Attachment
-                try {
-                    val parts = url.split(",")
-                    if (parts.size > 1) {
-                        val base64Content = parts[1]
-                        val decodedBytes = android.util.Base64.decode(base64Content, android.util.Base64.DEFAULT)
-                        val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "royalpdf_render.pdf"
-                        
-                        val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                        val saveFile = java.io.File(publicDownloadsDir, guessedName)
-                        
-                        java.io.FileOutputStream(saveFile).use { fos ->
-                            fos.write(decodedBytes)
-                        }
-                        Toast.makeText(context, "Saved to Downloads: $guessedName", Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(context, "Invalid data URL format", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Saved offline failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            } else if (url.startsWith("blob:")) {
-                // Blob conversion bridge utilizing JavaScript fetch -> bridge back!
-                Toast.makeText(context, "Converting secure PDF Blob...", Toast.LENGTH_SHORT).show()
-                webViewInstance?.evaluateJavascript(
-                    """
-                    (function() {
-                        var xhr = new XMLHttpRequest();
-                        xhr.open('GET', '$url', true);
-                        xhr.responseType = 'blob';
-                        xhr.onload = function(e) {
-                            if (this.status == 200) {
-                                var blob = this.response;
-                                var reader = new FileReader();
-                                reader.readAsDataURL(blob);
-                                reader.onloadend = function() {
-                                    var base64data = reader.result;
-                                    AndroidAppBridge.downloadBase64(base64data, '$contentDisposition', '$mimetype');
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                if (url.startsWith("data:")) {
+                    // Base64 Local Data Attachment
+                    try {
+                        val parts = url.split(",")
+                        if (parts.size > 1) {
+                            val base64Content = parts[1]
+                            val decodedBytes = android.util.Base64.decode(base64Content, android.util.Base64.DEFAULT)
+                            val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "royal_pdf_render.pdf"
+                            
+                            var savedUri: Uri? = null
+                            var savedMessage = ""
+                            
+                            // Strategy 1: Save using MediaStore for public Downloads folder (Android Q+)
+                            try {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                    val contentValues = android.content.ContentValues().apply {
+                                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, guessedName)
+                                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimetype)
+                                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                                    }
+                                    val resolver = context.contentResolver
+                                    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                                    if (uri != null) {
+                                        resolver.openOutputStream(uri)?.use { outputStream ->
+                                            outputStream.write(decodedBytes)
+                                        }
+                                        savedUri = uri
+                                        savedMessage = "Saved to Downloads: $guessedName"
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                            
+                            // Strategy 2: Direct file write fallback for older versions
+                            if (savedUri == null) {
+                                try {
+                                    val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                    if (!publicDownloadsDir.exists()) {
+                                        publicDownloadsDir.mkdirs()
+                                    }
+                                    val saveFile = java.io.File(publicDownloadsDir, guessedName)
+                                    java.io.FileOutputStream(saveFile).use { fos ->
+                                        fos.write(decodedBytes)
+                                    }
+                                    savedUri = Uri.fromFile(saveFile)
+                                    savedMessage = "Saved to Downloads: $guessedName"
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
                             }
-                        };
-                        xhr.send();
-                    })();
-                    """.trimIndent(), null
-                )
-            } else {
-                // Standard server hosted file downloads via OS DownloadManager
-                try {
-                    val request = DownloadManager.Request(Uri.parse(url)).apply {
-                        setMimeType(mimetype)
-                        val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "RoyalPDF_toolkit.pdf"
-                        
-                        // Pass authorization cookies to download manager cleanly
-                        val cookies = CookieManager.getInstance().getCookie(url)
-                        addRequestHeader("cookie", cookies)
-                        addRequestHeader("User-Agent", userAgent)
-                        
-                        setDescription("Downloading Royal PDF Editor customized file...")
-                        setTitle(guessedName)
-                        setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                        setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, guessedName)
+                            
+                            // Strategy 3: Sandbox/App-private safe folder fallback if public is completely blocked
+                            if (savedUri == null) {
+                                try {
+                                    val fallbackDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+                                    if (!fallbackDir.exists()) {
+                                        fallbackDir.mkdirs()
+                                    }
+                                    val fallbackFile = java.io.File(fallbackDir, guessedName)
+                                    java.io.FileOutputStream(fallbackFile).use { fos ->
+                                        fos.write(decodedBytes)
+                                    }
+                                    savedUri = Uri.fromFile(fallbackFile)
+                                    savedMessage = "Saved to safe space: $guessedName"
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                            
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                if (savedUri != null) {
+                                    Toast.makeText(context, savedMessage, Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "Permission error: Cannot save file", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        } else {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                Toast.makeText(context, "Invalid data URL format", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(context, "Saved offline failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                    val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                    dm.enqueue(request)
-                    Toast.makeText(context, "Download started...", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Secure Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+                } else if (url.startsWith("blob:")) {
+                    // Blob conversion bridge utilizing JavaScript fetch -> bridge back!
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        Toast.makeText(context, "Converting secure PDF Blob...", Toast.LENGTH_SHORT).show()
+                        webViewInstance?.evaluateJavascript(
+                            """
+                            (function() {
+                                var xhr = new XMLHttpRequest();
+                                xhr.open('GET', '$url', true);
+                                xhr.responseType = 'blob';
+                                xhr.onload = function(e) {
+                                    if (this.status == 200) {
+                                        var blob = this.response;
+                                        var reader = new FileReader();
+                                        reader.readAsDataURL(blob);
+                                        reader.onloadend = function() {
+                                            var base64data = reader.result;
+                                            AndroidAppBridge.downloadBase64(base64data, '$contentDisposition', '$mimetype');
+                                        }
+                                    }
+                                };
+                                xhr.send();
+                            })();
+                            """.trimIndent(), null
+                        )
+                    }
+                } else {
+                    // Standard server hosted file downloads via OS DownloadManager
+                    try {
+                        val request = DownloadManager.Request(Uri.parse(url)).apply {
+                            setMimeType(mimetype)
+                            val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "Royal_PDF_toolkit.pdf"
+                            
+                            // Pass authorization cookies to download manager cleanly
+                            val cookies = CookieManager.getInstance().getCookie(url)
+                            addRequestHeader("cookie", cookies)
+                            addRequestHeader("User-Agent", userAgent)
+                            
+                            setDescription("Downloading Royal PDF customized file...")
+                            setTitle(guessedName)
+                            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, guessedName)
+                        }
+                        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                        dm.enqueue(request)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(context, "Download started...", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            Toast.makeText(context, "Secure Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
             }
         }
@@ -287,13 +361,13 @@ fun MainAppScreen(
                             }
                             Column {
                                 Text(
-                                    text = "Royal PDF Editor",
+                                    text = "Royal PDF Tools",
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
                                 Text(
-                                    text = "Royal PDF Editor - Ultimate XML/PDF Tools",
+                                    text = "Royal PDF Tools - Ultimate PDF toolkit",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                                     maxLines = 1,
@@ -342,112 +416,126 @@ fun MainAppScreen(
                         trackColor = MaterialTheme.colorScheme.background
                     )
                 }
+
+                // Elegant Material 3 offline status banner
+                AnimatedVisibility(
+                    visible = !isNetworkConnected,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Network Offline Warning Indicator",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Offline Mode: Connection required to load PDF-Lib Workspace",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
         },
         bottomBar = {
-            // High UX companion navigation action shelf
-            Surface(
+            NavigationBar(
                 modifier = Modifier
-                    .shadow(16.dp)
-                    .navigationBarsPadding(),
-                color = MaterialTheme.colorScheme.surface
+                    .navigationBarsPadding()
+                    .shadow(16.dp),
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Back Action
-                    IconButton(
-                        onClick = { webViewInstance?.goBack() },
-                        enabled = canGoBackState.value,
-                        modifier = Modifier.testTag("app_btn_back")
-                    ) {
+                val activeTabId = when {
+                    showBentoDashboard -> "home"
+                    else -> currentTab
+                }
+
+                // Left item: History of processed PDFs
+                NavigationBarItem(
+                    selected = activeTabId == "history",
+                    onClick = {
+                        currentTab = "history"
+                        showBentoDashboard = false
+                        webViewInstance?.evaluateJavascript("window.setReactTab('history')", null)
+                    },
+                    icon = {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Navigate Backwards",
-                            tint = if (canGoBackState.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            imageVector = Icons.Default.History,
+                            contentDescription = "User Processing History"
                         )
-                    }
-
-                    // Forward Action
-                    val canGoForwardState = remember { mutableStateOf(false) }
-                    LaunchedEffect(webViewInstance?.url, isPageCurrentlyLoading) {
-                        canGoForwardState.value = webViewInstance?.canGoForward() ?: false
-                        canGoBackState.value = webViewInstance?.canGoBack() ?: false
-                    }
-
-                    IconButton(
-                        onClick = { webViewInstance?.goForward() },
-                        enabled = canGoForwardState.value,
-                        modifier = Modifier.testTag("app_btn_forward")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = "Navigate Forwards",
-                            tint = if (canGoForwardState.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    },
+                    label = {
+                        Text(
+                            text = "History",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                    }
+                    },
+                    modifier = Modifier.testTag("app_btn_history")
+                )
 
-                    // Home Action
-                    IconButton(
-                        onClick = {
-                            if (showBentoDashboard) {
-                                webViewInstance?.loadUrl("file:///android_asset/index.html")
-                                showBentoDashboard = false
-                            } else {
-                                showBentoDashboard = true
-                            }
-                        },
-                        modifier = Modifier.testTag("app_btn_home")
-                    ) {
+                // Middle item: Home button
+                NavigationBarItem(
+                    selected = activeTabId == "home",
+                    onClick = {
+                        showBentoDashboard = true
+                        currentTab = "home"
+                        webViewInstance?.evaluateJavascript("window.setReactTab('home')", null)
+                        webViewInstance?.evaluateJavascript("window.clearActiveTool()", null)
+                    },
+                    icon = {
                         Icon(
                             imageVector = Icons.Default.Home,
-                            contentDescription = "Return home page/dashboard",
-                            tint = if (showBentoDashboard) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            contentDescription = "Return Home"
                         )
-                    }
+                    },
+                    label = {
+                        Text(
+                            text = "Home",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    modifier = Modifier.testTag("app_btn_home")
+                )
 
-                    // Refresh Action
-                    IconButton(
-                        onClick = {
-                            if (isNetworkConnected) {
-                                webViewInstance?.reload()
-                            } else {
-                                Toast.makeText(context, "Network Offline - Cannot Reload", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.testTag("app_btn_refresh")
-                    ) {
+                // Right item: User Profile
+                NavigationBarItem(
+                    selected = activeTabId == "profile",
+                    onClick = {
+                        currentTab = "profile"
+                        showBentoDashboard = false
+                        webViewInstance?.evaluateJavascript("window.setReactTab('profile')", null)
+                    },
+                    icon = {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh PDF tool page",
-                            tint = MaterialTheme.colorScheme.primary
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "User Profile"
                         )
-                    }
-
-                    // Share Action
-                    IconButton(
-                        onClick = {
-                            val activeUrl = webViewInstance?.url ?: currentWebUrl
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, "Royal PDF Editor Toolkit")
-                                putExtra(Intent.EXTRA_TEXT, "Check out this handy tool page on Royal PDF Editor: $activeUrl")
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Page Utility"))
-                        },
-                        modifier = Modifier.testTag("app_btn_share")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share current tool link",
-                            tint = MaterialTheme.colorScheme.primary
+                    },
+                    label = {
+                        Text(
+                            text = "Profile",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                    }
-                }
+                    },
+                    modifier = Modifier.testTag("app_btn_profile")
+                )
             }
         }
     ) { innerPadding ->
@@ -524,6 +612,24 @@ fun MainAppScreen(
                         webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                 pageLoadingProgress = newProgress
+                            }
+
+                            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                consoleMessage?.let {
+                                    android.util.Log.d("WebViewConsole", "${it.message()} -- From line ${it.lineNumber()} of ${it.sourceId()}")
+                                }
+                                return true
+                            }
+
+                            override fun onJsAlert(
+                                view: WebView?,
+                                url: String?,
+                                message: String?,
+                                result: android.webkit.JsResult?
+                            ): Boolean {
+                                Toast.makeText(context, message ?: "", Toast.LENGTH_SHORT).show()
+                                result?.confirm()
+                                return true
                             }
 
                             override fun onShowFileChooser(
@@ -628,7 +734,7 @@ fun MainAppScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Royal PDF Editor runs privacy-protected PDF conversions. Please restore your internet connection to continue updating documents.",
+                        text = "Royal PDF Tools runs privacy-protected PDF conversions. Please restore your internet connection to continue updating documents.",
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center,
@@ -698,10 +804,10 @@ fun MainAppScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             // Centered PNG asset of our stylized logo we generated
-                            val rawLogoPainter = painterResource(id = R.drawable.swagchup_logo_1779279735712)
+                            val rawLogoPainter = painterResource(id = R.drawable.app_logo_foreground_1779362816411)
                             androidx.compose.foundation.Image(
                                 painter = rawLogoPainter,
-                                contentDescription = "SwagChup App Logo",
+                                contentDescription = "Royal PDF Tools App Logo",
                                 modifier = Modifier.size(100.dp)
                             )
                         }
@@ -709,7 +815,7 @@ fun MainAppScreen(
                         Spacer(modifier = Modifier.height(28.dp))
 
                         Text(
-                            text = "Royal PDF Editor",
+                            text = "Royal PDF Tools",
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp,
@@ -762,7 +868,7 @@ fun MainAppScreen(
                     },
                     title = {
                         Text(
-                            "Royal PDF Editor Toolkit",
+                            "Royal PDF Tools",
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
                             textAlign = TextAlign.Center
@@ -774,7 +880,7 @@ fun MainAppScreen(
                             modifier = Modifier.padding(vertical = 8.dp)
                         ) {
                             Text(
-                                "Royal PDF Editor wraps 35+ premium converters, compressors, editors, and security managers safely into your android device.",
+                                "Royal PDF Tools wraps 35+ premium converters, compressors, editors, and security managers safely into your android device.",
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                                 lineHeight = 20.sp
@@ -838,8 +944,8 @@ fun BentoDashboard(
     modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
-    val pinkBg = if (isDark) com.example.ui.theme.BentoPinkContainerDark else com.example.ui.theme.BentoPinkContainer
-    val pinkOnBg = if (isDark) com.example.ui.theme.BentoOnPinkContainerDark else com.example.ui.theme.BentoOnPinkContainer
+    val goldBg = if (isDark) Color(0xFF625B3E) else Color(0xFFFFF8E1)
+    val goldOnBg = if (isDark) Color(0xFFFFECB3) else Color(0xFF5D4037)
 
     Column(
         modifier = modifier
@@ -881,7 +987,7 @@ fun BentoDashboard(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "NEW TOOLKIT",
+                            text = "PREMIUM WORKSPACE",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary
@@ -891,7 +997,7 @@ fun BentoDashboard(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Oversized\nPDF Tools",
+                        text = "Royal PDF\nToolkit",
                         fontSize = 28.sp,
                         fontWeight = FontWeight.ExtraBold,
                         lineHeight = 32.sp,
@@ -906,7 +1012,7 @@ fun BentoDashboard(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = "Shop Collection",
+                        text = "Launch Workspace",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
@@ -938,7 +1044,7 @@ fun BentoDashboard(
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Custom Hoodies\n& Merge PDF",
+                        text = "Combine & Merge\nPDF Documents",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -967,7 +1073,7 @@ fun BentoDashboard(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Combine PDF",
+                                text = "Merge Files",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -1014,7 +1120,7 @@ fun BentoDashboard(
                             )
                         }
                         Text(
-                            text = "Premium Caps\n& Compress",
+                            text = "Optimize &\nCompress PDF",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -1054,7 +1160,7 @@ fun BentoDashboard(
                             )
                         }
                         Text(
-                            text = "Accessories\n& Protect",
+                            text = "Protect &\nUnlock PDFs",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -1071,7 +1177,7 @@ fun BentoDashboard(
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(28.dp))
-                .background(pinkBg)
+                .background(goldBg)
                 .clickable { onSelectToolUrl("file:///android_asset/index.html") }
                 .padding(horizontal = 20.dp, vertical = 10.dp)
         ) {
@@ -1085,15 +1191,15 @@ fun BentoDashboard(
                     modifier = Modifier.weight(1.2f)
                 ) {
                     Text(
-                        text = "Flash Sale",
-                        fontSize = 16.sp,
+                        text = "Complete Local Sovereignty",
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Black,
-                        color = pinkOnBg
+                        color = goldOnBg
                     )
                     Text(
-                        text = "Limited time: 40% Off",
+                        text = "All files remain processed in-device for total privacy",
                         fontSize = 11.sp,
-                        color = pinkOnBg.copy(alpha = 0.75f)
+                        color = goldOnBg.copy(alpha = 0.75f)
                     )
                 }
 
@@ -1101,13 +1207,13 @@ fun BentoDashboard(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(pinkOnBg),
+                        .background(goldOnBg),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowForward,
                         contentDescription = "Forward Action Arrow",
-                        tint = pinkBg,
+                        tint = goldBg,
                         modifier = Modifier.size(20.dp)
                     )
                 }
