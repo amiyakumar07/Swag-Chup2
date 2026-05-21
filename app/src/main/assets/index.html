@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SwagChup PDF Workspace</title>
+  <title>Royal PDF Editor Workspace</title>
   
   <!-- CSS Framework & Icons -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -149,7 +149,7 @@
           const font = await doc.embedFont(StandardFonts.HelveticaBold);
           doc.getPages().forEach(p => {
             const { width, height } = p.getSize();
-            p.drawText(params.text || "SwagChup", {
+            p.drawText(params.text || "Royal PDF Editor", {
               x: width/4, y: height/2, size: 48, font,
               color: rgb(0.8,0.8,0.8), opacity: 0.35, rotate: degrees(45),
             });
@@ -177,7 +177,7 @@
           const doc = await PDFDocument.load(bytes);
           const font = await doc.embedFont(StandardFonts.Helvetica);
           const page = doc.getPage(0);
-          page.drawText(params.text || "Edited by SwagChup", { x:50, y:50, size:14, font, color:rgb(0.1,0.1,0.9) });
+          page.drawText(params.text || "Edited by Royal PDF Editor", { x:50, y:50, size:14, font, color:rgb(0.1,0.1,0.9) });
           return { bytes: await doc.save(), name: "edited.pdf", type: "application/pdf" };
         }
         case "sign": {
@@ -219,20 +219,20 @@
           return { bytes: await doc.save(), name: "converted.pdf", type: "application/pdf" };
         }
         case "pdf-to-txt": {
-          return { bytes: new TextEncoder().encode("Text extracted from PDF by SwagChup.\n(Full OCR requires server-side processing.)"), name: "extracted.txt", type: "text/plain" };
+          return { bytes: new TextEncoder().encode("Text extracted from PDF by Royal PDF Editor.\n(Full OCR requires server-side processing.)"), name: "extracted.txt", type: "text/plain" };
         }
         case "pdf-to-csv": {
-          return { bytes: new TextEncoder().encode("Column1,Column2,Column3\nData1,Data2,Data3\n(Extracted by SwagChup)"), name: "extracted.csv", type: "text/csv" };
+          return { bytes: new TextEncoder().encode("Column1,Column2,Column3\nData1,Data2,Data3\n(Extracted by Royal PDF Editor)"), name: "extracted.csv", type: "text/csv" };
         }
         case "pdf-to-html": {
-          return { bytes: new TextEncoder().encode("<html><body><h1>SwagChup PDF Export</h1><p>Content extracted from PDF.</p></body></html>"), name: "exported.html", type: "text/html" };
+          return { bytes: new TextEncoder().encode("<html><body><h1>Royal PDF Editor Export</h1><p>Content extracted from PDF.</p></body></html>"), name: "exported.html", type: "text/html" };
         }
         default: {
           const bytes = await readBytes(file);
           const doc = await PDFDocument.create();
           const page = doc.addPage();
           const font = await doc.embedFont(StandardFonts.Helvetica);
-          page.drawText(`${toolId.toUpperCase()}\nProcessed by SwagChup`, { x:50, y:700, size:16, font, color:rgb(0,0,0) });
+          page.drawText(`${toolId.toUpperCase()}\nProcessed by Royal PDF Editor`, { x:50, y:700, size:16, font, color:rgb(0,0,0) });
           page.drawText(`File: ${file.name}\nSize: ${(file.size/1024).toFixed(1)} KB`, { x:50, y:650, size:12, font, color:rgb(0.3,0.3,0.3) });
           return { bytes: await doc.save(), name: "output.pdf", type: "application/pdf" };
         }
@@ -252,11 +252,11 @@
 
     // ─── STORAGE ──────────────────────────────────────────────────────────────────
     const getHistory = () => {
-      try { return JSON.parse(localStorage.getItem("swagchup_history")||"[]"); } catch { return []; }
+      try { return JSON.parse(localStorage.getItem("royalpdf_history")||"[]"); } catch { return []; }
     };
-    const saveHistory = (h) => { try { localStorage.setItem("swagchup_history", JSON.stringify(h.slice(0,50))); } catch {} };
-    const getUser = () => { try { return JSON.parse(localStorage.getItem("swagchup_user")||"null"); } catch { return null; } };
-    const saveUser = (u) => { try { localStorage.setItem("swagchup_user", JSON.stringify(u)); } catch {} };
+    const saveHistory = (h) => { try { localStorage.setItem("royalpdf_history", JSON.stringify(h.slice(0,50))); } catch {} };
+    const getUser = () => { try { return JSON.parse(localStorage.getItem("royalpdf_user")||"null"); } catch { return null; } };
+    const saveUser = (u) => { try { localStorage.setItem("royalpdf_user", JSON.stringify(u)); } catch {} };
 
     // ─── ICONS & UI HELPERS ───────────────────────────────────────────────────────
     const Icon = ({ name, size=20, style={} }) => (
@@ -281,7 +281,7 @@
                 <Icon name="ti-file-text" size={20} style={{ color:"#21005D" }} />
               </div>
               <div>
-                <div className="font-extrabold text-lg tracking-tight text-[#21005D]">SwagChup Workspace</div>
+                <div className="font-extrabold text-lg tracking-tight text-[#21005D]">Royal PDF Editor Workspace</div>
                 <div className="text-xs opacity-75 text-[#21005D]">Your Privacy-Shielded Workspace</div>
               </div>
             </div>
@@ -680,7 +680,7 @@
               <Icon name="ti-shield-lock" size={24} style={{ color:"#16a34a", flexShrink:0 }} />
               <div>
                 <div className="font-extrabold text-xs text-slate-800">Complete Offline Sovereignty</div>
-                <div className="text-[11px] text-slate-500 mt-1 leading-normal">SwagChup runs purely client-side on-device under Google sandbox container rules. Your core files are never serialized or transmitted.</div>
+                <div className="text-[11px] text-slate-500 mt-1 leading-normal">Royal PDF Editor runs purely client-side on-device under Google sandbox container rules. Your core files are never serialized or transmitted.</div>
               </div>
             </div>
 

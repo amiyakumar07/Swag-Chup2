@@ -184,7 +184,7 @@ fun MainAppScreen(
                     if (parts.size > 1) {
                         val base64Content = parts[1]
                         val decodedBytes = android.util.Base64.decode(base64Content, android.util.Base64.DEFAULT)
-                        val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "swagchup_render.pdf"
+                        val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "royalpdf_render.pdf"
                         
                         val publicDownloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                         val saveFile = java.io.File(publicDownloadsDir, guessedName)
@@ -228,14 +228,14 @@ fun MainAppScreen(
                 try {
                     val request = DownloadManager.Request(Uri.parse(url)).apply {
                         setMimeType(mimetype)
-                        val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "SwagChup_toolkit.pdf"
+                        val guessedName = URLUtil.guessFileName(url, contentDisposition, mimetype) ?: "RoyalPDF_toolkit.pdf"
                         
                         // Pass authorization cookies to download manager cleanly
                         val cookies = CookieManager.getInstance().getCookie(url)
                         addRequestHeader("cookie", cookies)
                         addRequestHeader("User-Agent", userAgent)
                         
-                        setDescription("Downloading SwagChup customized file...")
+                        setDescription("Downloading Royal PDF Editor customized file...")
                         setTitle(guessedName)
                         setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                         setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, guessedName)
@@ -287,13 +287,13 @@ fun MainAppScreen(
                             }
                             Column {
                                 Text(
-                                    text = "SwagChup",
+                                    text = "Royal PDF Editor",
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
                                 Text(
-                                    text = "swagchup.in - Ultimate XML/PDF Tools",
+                                    text = "Royal PDF Editor - Ultimate XML/PDF Tools",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                                     maxLines = 1,
@@ -434,8 +434,8 @@ fun MainAppScreen(
                             val activeUrl = webViewInstance?.url ?: currentWebUrl
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, "SwagChup PDF Toolkit")
-                                putExtra(Intent.EXTRA_TEXT, "Check out this handy tool page on SwagChup: $activeUrl")
+                                putExtra(Intent.EXTRA_SUBJECT, "Royal PDF Editor Toolkit")
+                                putExtra(Intent.EXTRA_TEXT, "Check out this handy tool page on Royal PDF Editor: $activeUrl")
                             }
                             context.startActivity(Intent.createChooser(shareIntent, "Share Page Utility"))
                         },
@@ -628,7 +628,7 @@ fun MainAppScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "SwagChup runs privacy-protected PDF conversions. Please restore your internet connection to continue updating documents.",
+                        text = "Royal PDF Editor runs privacy-protected PDF conversions. Please restore your internet connection to continue updating documents.",
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center,
@@ -709,7 +709,7 @@ fun MainAppScreen(
                         Spacer(modifier = Modifier.height(28.dp))
 
                         Text(
-                            text = "SwagChup",
+                            text = "Royal PDF Editor",
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp,
@@ -762,7 +762,7 @@ fun MainAppScreen(
                     },
                     title = {
                         Text(
-                            "SwagChup PDF Toolkit",
+                            "Royal PDF Editor Toolkit",
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
                             textAlign = TextAlign.Center
@@ -774,7 +774,7 @@ fun MainAppScreen(
                             modifier = Modifier.padding(vertical = 8.dp)
                         ) {
                             Text(
-                                "SwagChup wraps 35+ premium converters, compressors, editors, and security managers safely into your android device.",
+                                "Royal PDF Editor wraps 35+ premium converters, compressors, editors, and security managers safely into your android device.",
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                                 lineHeight = 20.sp
