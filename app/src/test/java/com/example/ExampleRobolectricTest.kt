@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.compose.material.icons.filled.History
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,6 +19,12 @@ class ExampleRobolectricTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
     assertEquals("Royal PDF Tools", appName)
+  }
+
+  @Test
+  fun `verify icons resolve`() {
+    val icon = androidx.compose.material.icons.Icons.Default.History
+    assert(icon != null)
   }
 
   @Test

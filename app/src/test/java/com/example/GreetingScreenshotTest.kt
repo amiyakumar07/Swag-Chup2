@@ -32,4 +32,14 @@ class GreetingScreenshotTest {
 
     composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/greeting.png")
   }
+
+  @Test
+  fun bento_dashboard_screenshot() {
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        BentoDashboard(onSelectToolUrl = {})
+      }
+    }
+    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/bento_dashboard.png")
+  }
 }

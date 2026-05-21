@@ -787,6 +787,10 @@
         window.clearActiveTool = () => {
           setActiveTool(null);
         };
+        window.setReactUser = (u) => {
+          saveUser(u);
+          setUser(u);
+        };
         const params = new URLSearchParams(window.location.search);
         const toolId = params.get("tool");
         if (toolId) {
@@ -806,7 +810,13 @@
       }, []);
 
       const handleLogin = u => { saveUser(u); setUser(u); };
-      const handleLogout = () => { saveUser(null); setUser(null); };
+      const handleLogout = () => {
+        saveUser(null);
+        setUser(null);
+        if (window.AndroidAppBridge && window.AndroidAppBridge.onNativeLogout) {
+          window.AndroidAppBridge.onNativeLogout();
+        }
+      };
       const clearHistory = () => { setHistory([]); saveHistory([]); };
 
       return (

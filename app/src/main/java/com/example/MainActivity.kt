@@ -59,6 +59,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.example.AuthViewModel
+import com.example.AuthViewModelFactory
+import com.example.ui.AuthScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -86,11 +89,17 @@ class MainActivity : ComponentActivity() {
  */
 class WebAppInterface(
     private val context: Context,
-    private val onDownloadBase64: (base64Str: String, contentDisposition: String, mimeType: String) -> Unit
+    private val onDownloadBase64: (base64Str: String, contentDisposition: String, mimeType: String) -> Unit,
+    private val onLogoutTriggered: () -> Unit = {}
 ) {
     @JavascriptInterface
     fun downloadBase64(base64Data: String, contentDisposition: String, mimetype: String) {
         onDownloadBase64(base64Data, contentDisposition, mimetype)
+    }
+
+    @JavascriptInterface
+    fun onNativeLogout() {
+        onLogoutTriggered()
     }
 }
 
@@ -103,6 +112,14 @@ fun MainAppScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    // Room database synchronization and unified ViewModel setup
+    val database = remember(context) { com.example.data.AppDatabase.getDatabase(context) }
+    val userRepository = remember(database) { com.example.data.UserRepository(database.userDao()) }
+    val authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = com.example.AuthViewModelFactory(userRepository)
+    )
+    val currentAuthUser by authViewModel.userState.collectAsState()
 
     // 1. Connection states
     fun isConnectedNow(ctx: Context): Boolean {
@@ -156,6 +173,32 @@ fun MainAppScreen(
     LaunchedEffect(Unit) {
         delay(4000)
         isSplashVisible = false
+    }
+
+    // Reactive bidirectional synchronization of the active tab state between native and WebView
+    LaunchedEffect(currentTab, isPageCurrentlyLoading, webViewInstance) {
+        if (!isPageCurrentlyLoading && webViewInstance != null) {
+            webViewInstance?.evaluateJavascript("if (window.setReactTab) { window.setReactTab('$currentTab'); }", null)
+            if (currentTab == "home") {
+                webViewInstance?.evaluateJavascript("if (window.clearActiveTool) { window.clearActiveTool(); }", null)
+            }
+        }
+    }
+
+    // Reactive synchronization of authenticated User identity with WebView profile context
+    LaunchedEffect(currentAuthUser, isPageCurrentlyLoading, webViewInstance) {
+        if (!isPageCurrentlyLoading && webViewInstance != null) {
+            val user = currentAuthUser
+            if (user != null) {
+                val escapedName = user.name.replace("'", "\\'")
+                val escapedEmail = user.email.replace("'", "\\'")
+                val escapedAvatar = user.avatar.replace("'", "\\'")
+                val jsExpr = "if (window.setReactUser) { window.setReactUser({ name: '$escapedName', email: '$escapedEmail', plan: 'private-pro', joined: '${user.joinedDate}', avatar: '$escapedAvatar' }); }"
+                webViewInstance?.evaluateJavascript(jsExpr, null)
+            } else {
+                webViewInstance?.evaluateJavascript("if (window.setReactUser) { window.setReactUser(null); }", null)
+            }
+        }
     }
 
     // WebView File Chooser Launcher Setup
@@ -334,6 +377,9 @@ fun MainAppScreen(
         }
     }
 
+    // Capture latest reference of download logic to prevent stale closure capture bug
+    val latestDownloadHandler by rememberUpdatedState(handleDownloadAction)
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -470,7 +516,6 @@ fun MainAppScreen(
                     onClick = {
                         currentTab = "history"
                         showBentoDashboard = false
-                        webViewInstance?.evaluateJavascript("window.setReactTab('history')", null)
                     },
                     icon = {
                         Icon(
@@ -494,8 +539,6 @@ fun MainAppScreen(
                     onClick = {
                         showBentoDashboard = true
                         currentTab = "home"
-                        webViewInstance?.evaluateJavascript("window.setReactTab('home')", null)
-                        webViewInstance?.evaluateJavascript("window.clearActiveTool()", null)
                     },
                     icon = {
                         Icon(
@@ -519,7 +562,6 @@ fun MainAppScreen(
                     onClick = {
                         currentTab = "profile"
                         showBentoDashboard = false
-                        webViewInstance?.evaluateJavascript("window.setReactTab('profile')", null)
                     },
                     icon = {
                         Icon(
@@ -570,16 +612,24 @@ fun MainAppScreen(
 
                         // WebApp download callbacks mapping
                         setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
-                            handleDownloadAction(url, userAgent, contentDisposition, mimetype)
+                            latestDownloadHandler(url, userAgent, contentDisposition, mimetype)
                         }
 
                         // JS Native Bridge to extract blob downloads
                         addJavascriptInterface(
-                            WebAppInterface(context) { base64Data, disposition, mimetype ->
-                                coroutineScope.launch {
-                                    handleDownloadAction(base64Data, "", disposition, mimetype)
+                            WebAppInterface(
+                                context = context,
+                                onDownloadBase64 = { base64Data, disposition, mimetype ->
+                                    coroutineScope.launch {
+                                        latestDownloadHandler(base64Data, "", disposition, mimetype)
+                                    }
+                                },
+                                onLogoutTriggered = {
+                                    coroutineScope.launch {
+                                        authViewModel.logout()
+                                    }
                                 }
-                            },
+                            ),
                             "AndroidAppBridge"
                         )
 
@@ -689,6 +739,21 @@ fun MainAppScreen(
                             }
                         }
                     )
+                }
+            }
+
+            // Native Material 3 Auth Screen (Renders when active tab is profile)
+            AnimatedVisibility(
+                visible = currentTab == "profile" && !showBentoDashboard,
+                enter = fadeIn(tween(400)),
+                exit = fadeOut(tween(400))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
+                    AuthScreen(authViewModel = authViewModel)
                 }
             }
 
