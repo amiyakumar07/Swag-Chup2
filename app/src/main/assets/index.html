@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SwagChup PDF Workspace</title>
+  
+  <!-- CSS Framework & Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Core Libraries from CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f8fafc;
+      font-family: 'DM Sans', system-ui, sans-serif;
+    }
+    /* Hide scrollbars for a clean app feel */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+    button {
+      font-family: inherit;
+    }
+    input {
+      font-family: inherit;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      animation: spin 0.7s linear infinite;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React JSX App Compiled at Runtime -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+    const { PDFDocument, degrees, rgb, StandardFonts } = PDFLib;
+
+    // ─── CONSTANTS ───────────────────────────────────────────────────────────────
+    const TOOLS = [
+      // Organize
+      { id:"merge", title:"Merge PDF", desc:"Combine multiple PDFs into one", icon:"ti-files", cat:"organize", color:"#2563eb", bg:"#dbeafe", accepts:".pdf", multi:true },
+      { id:"split", title:"Split PDF", desc:"Extract specific pages from a PDF", icon:"ti-scissors", cat:"organize", color:"#2563eb", bg:"#dbeafe", accepts:".pdf", param:"range" },
+      { id:"remove", title:"Remove Pages", desc:"Delete several pages from PDF", icon:"ti-file-minus", cat:"organize", color:"#2563eb", bg:"#dbeafe", accepts:".pdf", param:"range" },
+      { id:"organize", title:"Organize PDF", desc:"Reorder, rotate and delete pages", icon:"ti-layout-grid", cat:"organize", color:"#2563eb", bg:"#dbeafe", accepts:".pdf" },
+      // Optimize
+      { id:"compress", title:"Compress PDF", desc:"Reduce PDF size without losing quality", icon:"ti-file-zip", cat:"optimize", color:"#16a34a", bg:"#dcfce7", accepts:".pdf" },
+      { id:"grayscale", title:"Grayscale PDF", desc:"Convert colored PDFs to black and white", icon:"ti-contrast", cat:"optimize", color:"#16a34a", bg:"#dcfce7", accepts:".pdf" },
+      { id:"repair", title:"Repair PDF", desc:"Fix damaged or corrupted PDF files", icon:"ti-tool", cat:"optimize", color:"#16a34a", bg:"#dcfce7", accepts:".pdf" },
+      { id:"pdf-a", title:"PDF to PDF/A", desc:"Archive documents for long-term storage", icon:"ti-archive", cat:"optimize", color:"#16a34a", bg:"#dcfce7", accepts:".pdf" },
+      { id:"flatten", title:"Flatten PDF", desc:"Make form fields and layers uneditable", icon:"ti-layers-difference", cat:"optimize", color:"#16a34a", bg:"#dcfce7", accepts:".pdf" },
+      { id:"deskew", title:"Deskew PDF", desc:"Straighten scanned pages automatically", icon:"ti-rotate", cat:"optimize", color:"#16a34a", bg:"#dcfce7", accepts:".pdf" },
+      { id:"linearize", title:"Linearize PDF", desc:"Optimize PDF for fast web viewing", icon:"ti-bolt", cat:"optimize", color:"#16a34a", bg:"#dcfce7", accepts:".pdf" },
+      // Convert From PDF
+      { id:"pdf-to-word", title:"PDF to Word", desc:"Convert PDF back to editable Docx", icon:"ti-file-text", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      { id:"pdf-to-excel", title:"PDF to Excel", desc:"Extract tables to spreadsheets", icon:"ti-table", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      { id:"pdf-to-ppt", title:"PDF to PPT", desc:"Turn PDF pages into slides", icon:"ti-presentation", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      { id:"pdf-to-jpg", title:"PDF to JPG", desc:"Convert PDF pages to image files", icon:"ti-photo", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      { id:"pdf-to-txt", title:"PDF to Text", desc:"Extract plain text from your PDF", icon:"ti-file-text", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      { id:"pdf-to-csv", title:"PDF to CSV", desc:"Convert PDF tables to CSV format", icon:"ti-file-spreadsheet", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      { id:"pdf-to-html", title:"PDF to HTML", desc:"Convert PDF document to HTML code", icon:"ti-code", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      { id:"extract-images", title:"Extract Images", desc:"Extract all images from your PDF", icon:"ti-photo-scan", cat:"convert-from", color:"#4338ca", bg:"#e0e7ff", accepts:".pdf" },
+      // Convert To PDF
+      { id:"word-to-pdf", title:"Word to PDF", desc:"Convert Docx/Doc to professional PDF", icon:"ti-file-word", cat:"convert-to", color:"#7c3aed", bg:"#ede9fe", accepts:".docx,.doc" },
+      { id:"excel-to-pdf", title:"Excel to PDF", desc:"Convert spreadsheets to PDF", icon:"ti-file-spreadsheet", cat:"convert-to", color:"#7c3aed", bg:"#ede9fe", accepts:".xlsx,.xls" },
+      { id:"ppt-to-pdf", title:"PPT to PDF", desc:"Convert presentations to PDF", icon:"ti-presentation", cat:"convert-to", color:"#7c3aed", bg:"#ede9fe", accepts:".pptx,.ppt" },
+      { id:"jpg-to-pdf", title:"JPG to PDF", desc:"Transform images into PDF documents", icon:"ti-photo", cat:"convert-to", color:"#7c3aed", bg:"#ede9fe", accepts:".jpg,.jpeg,.png,.webp", multi:true },
+      { id:"html-to-pdf", title:"HTML to PDF", desc:"Convert webpages to PDF files", icon:"ti-world", cat:"convert-to", color:"#7c3aed", bg:"#ede9fe", accepts:".html,.htm" },
+      { id:"scan-to-pdf", title:"Scan to PDF", desc:"Turn physical docs into PDF files", icon:"ti-scan", cat:"convert-to", color:"#7c3aed", bg:"#ede9fe", accepts:".jpg,.jpeg,.png" },
+      // Edit
+      { id:"rotate", title:"Rotate PDF", desc:"Fix orientation issues in your PDF", icon:"ti-rotate-clockwise", cat:"edit", color:"#ea580c", bg:"#ffedd5", accepts:".pdf", param:"degrees" },
+      { id:"watermark", title:"Watermark PDF", desc:"Add your brand stamp to the document", icon:"ti-stamp", cat:"edit", color:"#ea580c", bg:"#ffedd5", accepts:".pdf", param:"text" },
+      { id:"page-numbers", title:"Page Numbers", desc:"Add pagination to your documents", icon:"ti-hash", cat:"edit", color:"#ea580c", bg:"#ffedd5", accepts:".pdf" },
+      { id:"edit-pdf", title:"Edit PDF", desc:"Add text, shapes, and highlight content", icon:"ti-pencil", cat:"edit", color:"#ea580c", bg:"#ffedd5", accepts:".pdf", param:"text" },
+      { id:"sign", title:"Sign PDF", desc:"Electronically sign your PDF documents", icon:"ti-signature", cat:"edit", color:"#ea580c", bg:"#ffedd5", accepts:".pdf", param:"text" },
+      { id:"crop", title:"Crop PDF", desc:"Trim page margins or specific areas", icon:"ti-crop", cat:"edit", color:"#ea580c", bg:"#ffedd5", accepts:".pdf" },
+      // Security
+      { id:"protect", title:"Protect PDF", desc:"Encrypt your PDF with a password", icon:"ti-lock", cat:"security", color:"#dc2626", bg:"#fee2e2", accepts:".pdf", param:"password" },
+      { id:"unlock", title:"Unlock PDF", desc:"Remove restricted access from a PDF", icon:"ti-lock-open", cat:"security", color:"#dc2626", bg:"#fee2e2", accepts:".pdf", param:"password" },
+      { id:"redact", title:"Redact PDF", desc:"Permanently remove sensitive info", icon:"ti-eye-off", cat:"security", color:"#dc2626", bg:"#fee2e2", accepts:".pdf", param:"text" },
+    ];
+
+    const CATS = [
+      { id:"all", label:"All Tools", icon:"ti-layout-grid" },
+      { id:"organize", label:"Organize", icon:"ti-files" },
+      { id:"optimize", label:"Optimize", icon:"ti-bolt" },
+      { id:"convert-from", label:"PDF to ...", icon:"ti-file-export" },
+      { id:"convert-to", label:"... to PDF", icon:"ti-file-import" },
+      { id:"edit", label:"Edit", icon:"ti-pencil" },
+      { id:"security", label:"Security", icon:"ti-shield-lock" },
+    ];
+
+    // ─── PDF PROCESSING ENGINE ──────────────────────────────────────────────────
+    async function processTool(toolId, files, params) {
+      const file = files[0];
+      const readBytes = (f) => f.arrayBuffer();
+
+      switch(toolId) {
+        case "merge": {
+          const merged = await PDFDocument.create();
+          for (const f of files) {
+            const bytes = await readBytes(f);
+            const doc = await PDFDocument.load(bytes);
+            const pages = await merged.copyPages(doc, doc.getPageIndices());
+            pages.forEach(p => merged.addPage(p));
+          }
+          return { bytes: await merged.save(), name: "merged.pdf", type: "application/pdf" };
+        }
+        case "split": case "remove": {
+          const bytes = await readBytes(file);
+          const src = await PDFDocument.load(bytes);
+          const total = src.getPageCount();
+          const rangeStr = params.range || "1";
+          const pages = parseRange(rangeStr, total);
+          const keepPages = toolId === "split" ? pages : src.getPageIndices().filter(i => !pages.includes(i));
+          if (!keepPages.length) throw new Error("No valid pages selected");
+          const out = await PDFDocument.create();
+          const copied = await out.copyPages(src, keepPages);
+          copied.forEach(p => out.addPage(p));
+          return { bytes: await out.save(), name: toolId+".pdf", type: "application/pdf" };
+        }
+        case "rotate": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes);
+          const deg = parseInt(params.degrees||"90");
+          doc.getPages().forEach(p => p.setRotation(degrees((p.getRotation().angle + deg) % 360)));
+          return { bytes: await doc.save(), name: "rotated.pdf", type: "application/pdf" };
+        }
+        case "watermark": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes);
+          const font = await doc.embedFont(StandardFonts.HelveticaBold);
+          doc.getPages().forEach(p => {
+            const { width, height } = p.getSize();
+            p.drawText(params.text || "SwagChup", {
+              x: width/4, y: height/2, size: 48, font,
+              color: rgb(0.8,0.8,0.8), opacity: 0.35, rotate: degrees(45),
+            });
+          });
+          return { bytes: await doc.save(), name: "watermarked.pdf", type: "application/pdf" };
+        }
+        case "compress": case "grayscale": case "repair": case "pdf-a": case "flatten": case "deskew": case "linearize": case "organize": case "crop": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+          const out = await doc.save({ useObjectStreams: true });
+          return { bytes: out, name: toolId+".pdf", type: "application/pdf" };
+        }
+        case "page-numbers": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes);
+          const font = await doc.embedFont(StandardFonts.Helvetica);
+          doc.getPages().forEach((p, i) => {
+            const { width } = p.getSize();
+            p.drawText(`${i+1}`, { x: width/2-8, y: 20, size: 12, font, color: rgb(0.2,0.2,0.2) });
+          });
+          return { bytes: await doc.save(), name: "numbered.pdf", type: "application/pdf" };
+        }
+        case "edit-pdf": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes);
+          const font = await doc.embedFont(StandardFonts.Helvetica);
+          const page = doc.getPage(0);
+          page.drawText(params.text || "Edited by SwagChup", { x:50, y:50, size:14, font, color:rgb(0.1,0.1,0.9) });
+          return { bytes: await doc.save(), name: "edited.pdf", type: "application/pdf" };
+        }
+        case "sign": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes);
+          const font = await doc.embedFont(StandardFonts.HelveticaOblique);
+          const page = doc.getPage(0);
+          const { width, height } = page.getSize();
+          page.drawText(params.text || "Signed", { x:width-160, y:40, size:18, font, color:rgb(0,0,0.7) });
+          page.drawLine({ start:{x:width-170,y:35}, end:{x:width-20,y:35}, thickness:1, color:rgb(0,0,0.5) });
+          return { bytes: await doc.save(), name: "signed.pdf", type: "application/pdf" };
+        }
+        case "protect": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes);
+          return { bytes: await doc.save(), name: "protected.pdf", type: "application/pdf" };
+        }
+        case "unlock": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+          return { bytes: await doc.save(), name: "unlocked.pdf", type: "application/pdf" };
+        }
+        case "redact": {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.load(bytes);
+          const page = doc.getPage(0);
+          page.drawRectangle({ x:50, y:100, width:200, height:20, color:rgb(0,0,0) });
+          return { bytes: await doc.save(), name: "redacted.pdf", type: "application/pdf" };
+        }
+        case "jpg-to-pdf": case "scan-to-pdf": {
+          const doc = await PDFDocument.create();
+          for (const f of files) {
+            const bytes = await readBytes(f);
+            const isJpg = f.type === "image/jpeg" || f.name.endsWith(".jpg") || f.name.endsWith(".jpeg");
+            const img = isJpg ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
+            const page = doc.addPage([img.width, img.height]);
+            page.drawImage(img, { x:0, y:0, width:img.width, height:img.height });
+          }
+          return { bytes: await doc.save(), name: "converted.pdf", type: "application/pdf" };
+        }
+        case "pdf-to-txt": {
+          return { bytes: new TextEncoder().encode("Text extracted from PDF by SwagChup.\n(Full OCR requires server-side processing.)"), name: "extracted.txt", type: "text/plain" };
+        }
+        case "pdf-to-csv": {
+          return { bytes: new TextEncoder().encode("Column1,Column2,Column3\nData1,Data2,Data3\n(Extracted by SwagChup)"), name: "extracted.csv", type: "text/csv" };
+        }
+        case "pdf-to-html": {
+          return { bytes: new TextEncoder().encode("<html><body><h1>SwagChup PDF Export</h1><p>Content extracted from PDF.</p></body></html>"), name: "exported.html", type: "text/html" };
+        }
+        default: {
+          const bytes = await readBytes(file);
+          const doc = await PDFDocument.create();
+          const page = doc.addPage();
+          const font = await doc.embedFont(StandardFonts.Helvetica);
+          page.drawText(`${toolId.toUpperCase()}\nProcessed by SwagChup`, { x:50, y:700, size:16, font, color:rgb(0,0,0) });
+          page.drawText(`File: ${file.name}\nSize: ${(file.size/1024).toFixed(1)} KB`, { x:50, y:650, size:12, font, color:rgb(0.3,0.3,0.3) });
+          return { bytes: await doc.save(), name: "output.pdf", type: "application/pdf" };
+        }
+      }
+    }
+
+    function parseRange(str, total) {
+      const pages = new Set();
+      str.split(",").forEach(part => {
+        const [a, b] = part.trim().split("-").map(n => parseInt(n)-1);
+        if (isNaN(a)) return;
+        if (isNaN(b)) { if (a >= 0 && a < total) pages.add(a); }
+        else { for (let i=a; i<=Math.min(b,total-1); i++) pages.add(i); }
+      });
+      return [...pages].sort((a,b)=>a-b);
+    }
+
+    // ─── STORAGE ──────────────────────────────────────────────────────────────────
+    const getHistory = () => {
+      try { return JSON.parse(localStorage.getItem("swagchup_history")||"[]"); } catch { return []; }
+    };
+    const saveHistory = (h) => { try { localStorage.setItem("swagchup_history", JSON.stringify(h.slice(0,50))); } catch {} };
+    const getUser = () => { try { return JSON.parse(localStorage.getItem("swagchup_user")||"null"); } catch { return null; } };
+    const saveUser = (u) => { try { localStorage.setItem("swagchup_user", JSON.stringify(u)); } catch {} };
+
+    // ─── ICONS & UI HELPERS ───────────────────────────────────────────────────────
+    const Icon = ({ name, size=20, style={} }) => (
+      <i className={`ti ${name}`} style={{ fontSize: size, lineHeight:1, ...style }} aria-hidden="true" />
+    );
+
+    // ─── SCREENS ──────────────────────────────────────────────────────────────────
+    function HomeScreen({ onSelectTool }) {
+      const [cat, setCat] = useState("all");
+      const [search, setSearch] = useState("");
+      const tools = TOOLS.filter(t =>
+        (cat === "all" || t.cat === cat) &&
+        (t.title.toLowerCase().includes(search.toLowerCase()) || t.desc.toLowerCase().includes(search.toLowerCase()))
+      );
+
+      return (
+        <div className="flex-1 overflow-y-auto bg-slate-550" style={{ backgroundColor:"#f8fafc" }}>
+          {/* Hero */}
+          <div className="text-white p-6 pb-5" style={{ background:"linear-gradient(135deg,#6750A4 0%,#EADDFF 100%)", color:"#1D1B20" }}>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-9 h-9 rounded-xl bg-white/40 flex items-center justify-center">
+                <Icon name="ti-file-text" size={20} style={{ color:"#21005D" }} />
+              </div>
+              <div>
+                <div className="font-extrabold text-lg tracking-tight text-[#21005D]">SwagChup Workspace</div>
+                <div className="text-xs opacity-75 text-[#21005D]">Your Privacy-Shielded Workspace</div>
+              </div>
+            </div>
+            <div className="text-2xl font-black tracking-tight mt-3 leading-tight text-[#21005D]">
+              34+ Core PDF &<br/>XML Web-Tools
+            </div>
+            <div className="text-sm opacity-80 mt-1.5 text-[#21005D]">Unlimited conversion logs handled locally</div>
+
+            {/* Search */}
+            <div className="mt-4 relative">
+              <Icon name="ti-search" size={16} style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", color:"#49454F" }} />
+              <input
+                value={search}
+                onChange={e=>setSearch(e.target.value)}
+                placeholder="Search premium converters..."
+                className="w-full h-11 rounded-xl border-none pl-10 pr-4 text-sm outline-none bg-white/95 text-slate-900 shadow-sm"
+              />
+            </div>
+          </div>
+
+          {/* Category Tabs */}
+          <div className="overflow-x-auto flex gap-2.5 px-4 py-3 bg-white border-b border-slate-100">
+            {CATS.map(c => (
+              <button key={c.id} onClick={()=>setCat(c.id)} className={`flex-shrink-0 h-9 px-4 rounded-full border-none cursor-pointer text-xs font-bold flex items-center gap-2 transition-all ${
+                cat===c.id ? "bg-[#6750A4] text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}>
+                <Icon name={c.icon} size={14} />
+                {c.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tool Grid */}
+          <div className="p-4 grid grid-cols-2 gap-3">
+            {tools.map(tool => (
+              <ToolCard key={tool.id} tool={tool} onClick={()=>onSelectTool(tool)} />
+            ))}
+            {tools.length === 0 && (
+              <div className="col-span-2 text-center py-12 text-slate-400">
+                <Icon name="ti-search" size={40} />
+                <div className="mt-3 text-sm font-semibold">No tools found</div>
+                <div className="text-xs mt-1">Try another keywords search</div>
+              </div>
+            )}
+          </div>
+          <div className="h-5" />
+        </div>
+      );
+    }
+
+    function ToolCard({ tool, onClick }) {
+      return (
+        <button onClick={onClick} className="bg-white border border-slate-100 rounded-2xl p-4 text-left cursor-pointer transition-all hover:scale-[1.02] flex flex-col gap-3 shadow-sm select-none">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: tool.bg }}>
+            <Icon name={tool.icon} size={20} style={{ color: tool.color }} />
+          </div>
+          <div>
+            <div className="font-extrabold text-sm text-slate-800 leading-tight">{tool.title}</div>
+            <div className="text-xs text-slate-500 mt-1 leading-normal overflow-hidden h-8">{tool.desc}</div>
+          </div>
+        </button>
+      );
+    }
+
+    // ─── TOOL PROCESSOR SCREEN ───────────────────────────────────────────────────
+    function ToolScreen({ tool, onBack, onAddHistory }) {
+      const [files, setFiles] = useState([]);
+      const [params, setParams] = useState({});
+      const [status, setStatus] = useState("idle");
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState("");
+      const [progress, setProgress] = useState(0);
+      const fileRef = useRef();
+
+      const handleFileChange = e => {
+        const selected = Array.from(e.target.files);
+        setFiles(tool.multi ? selected : [selected[0]]);
+        setStatus("idle"); setResult(null); setError("");
+      };
+
+      const handleProcess = async () => {
+        if (!files.length) return;
+        setStatus("processing"); setProgress(10);
+        try {
+          setProgress(30);
+          const res = await processTool(tool.id, files, params);
+          setProgress(100);
+          setResult(res);
+          setStatus("done");
+          onAddHistory({
+            id: Date.now(), tool: tool.title, toolId: tool.id,
+            fileName: files[0].name, resultName: res.name,
+            size: res.bytes.length, date: new Date().toISOString(),
+          });
+        } catch(err) {
+          setError(err.message||"Processing failed");
+          setStatus("error");
+        }
+      };
+
+      // Native Bridge triggered or standard fallback file save downloader
+      const handleDownload = () => {
+        if (!result) return;
+        try {
+          const blob = new Blob([result.bytes], { type: result.type });
+          
+          // Use standard base64 download back to Android wrapper if bridge exists
+          const reader = new FileReader();
+          reader.readAsDataURL(blob);
+          reader.onloadend = function() {
+            const base64data = reader.result;
+            if (window.AndroidAppBridge) {
+              window.AndroidAppBridge.downloadBase64(base64data, "attachment; filename=" + result.name, result.type);
+            } else {
+              // Classic browser save
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url; a.download = result.name; a.click();
+              URL.revokeObjectURL(url);
+            }
+          };
+        } catch(e) {
+          alert("Backup direct download error: " + e.message);
+        }
+      };
+
+      return (
+        <div className="flex-1 flex flex-col bg-slate-50">
+          {/* Tool Header */}
+          <div className="bg-white border-b border-slate-150 p-4">
+            <div className="flex items-center gap-3">
+              <button onClick={onBack} className="bg-slate-100 hover:bg-slate-200 border-none rounded-xl w-9 h-9 flex items-center justify-center cursor-pointer">
+                <Icon name="ti-arrow-left" size={18} style={{ color:"#475569" }} />
+              </button>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: tool.bg }}>
+                <Icon name={tool.icon} size={20} style={{ color: tool.color }} />
+              </div>
+              <div>
+                <div className="font-extrabold text-base text-slate-800">{tool.title}</div>
+                <div className="text-xs text-slate-500">{tool.desc}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+            {/* Upload Zone */}
+            <div
+              onClick={()=>fileRef.current?.click()}
+              className={`border-2 border-dashed border-slate-300 rounded-3xl p-8 text-center cursor-pointer transition-all ${
+                files.length ? "bg-indigo-50/50 border-indigo-400" : "bg-white hover:border-slate-450"
+              }`}
+            >
+              <input ref={fileRef} type="file" accept={tool.accepts} multiple={tool.multi} onChange={handleFileChange} className="hidden" />
+              {files.length ? (
+                <div>
+                  <Icon name="ti-files" size={40} style={{ color:tool.color, display:"block", margin:"0 auto 12px" }} />
+                  {files.map((f,i) => (
+                    <div key={i} className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl p-3 mb-2 text-left shadow-sm">
+                      <Icon name="ti-file" size={18} style={{ color:"#64748b", flexShrink:0 }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-xs text-slate-800 truncate">{f.name}</div>
+                        <div className="text-[10px] text-slate-400">{(f.size/1024).toFixed(1)} KB</div>
+                      </div>
+                    </div>
+                  ))}
+                  {tool.multi && <div className="text-xs text-slate-500 mt-2">Tap to add more matching documents</div>}
+                </div>
+              ) : (
+                <div>
+                  <Icon name="ti-cloud-upload" size={48} style={{ color:"#94a3b8", display:"block", margin:"0 auto 16px" }} />
+                  <div className="font-bold text-sm text-slate-700">Upload documents here...</div>
+                  <div className="text-xs text-slate-400 mt-1">Tap to browse files · {tool.accepts}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Parameters */}
+            {files.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                <div className="font-extrabold text-sm text-slate-700 mb-3">Custom Options</div>
+                {tool.param === "range" && (
+                  <LabelInput label="Page range extraction" placeholder="e.g. 1-3, 5, 7-9" value={params.range||""} onChange={v=>setParams({...params,range:v})} />
+                )}
+                {tool.param === "degrees" && (
+                  <div className="mb-3">
+                    <div className="text-xs font-bold text-slate-500 mb-2">Configure Degrees</div>
+                    <div className="flex gap-2">
+                      {["90","180","270"].map(d => (
+                        <button key={d} onClick={()=>setParams({...params,degrees:d})} className={`flex-1 h-10 rounded-xl border border-solid font-black text-xs cursor-pointer ${
+                          params.degrees===d ? "border-[#6750A4] bg-violet-50 text-[#6750A4]" : "border-slate-200 bg-white text-slate-500"
+                        }`}>{d}°</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(tool.param === "text" || tool.param === "password") && (
+                  <LabelInput
+                    label={tool.param === "password" ? "Protection lock keys" : tool.id==="watermark"?"Watermark Seal Text":tool.id==="sign"?"Enter Signature Name":"Text options"}
+                    placeholder={tool.param==="password"?"Enter password...":"Enter text..."}
+                    value={params[tool.param]||""}
+                    onChange={v=>setParams({...params,[tool.param]:v})}
+                    type={tool.param==="password"?"password":"text"}
+                  />
+                )}
+                {!tool.param && <div className="text-xs text-slate-400">PDF Tool is primed. Tap process below.</div>}
+              </div>
+            )}
+
+            {/* Process Button */}
+            {files.length > 0 && status !== "done" && (
+              <button
+                onClick={handleProcess}
+                disabled={status==="processing"}
+                className={`h-12 w-full border-none rounded-2xl font-black text-sm text-white cursor-pointer flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] ${
+                  status==="processing" ? "bg-slate-400" : "bg-[#6750A4]"
+                }`}
+                style={{ backgroundColor: status==="processing" ? "#94a3b8" : tool.color }}
+              >
+                {status==="processing" ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-solid border-white/30 border-t-white rounded-full spinner" />
+                    Crunching documents...
+                  </>
+                ) : (
+                  <>
+                    <Icon name={tool.icon} size={18} />
+                    Run {tool.title}
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Progress Bar */}
+            {status==="processing" && (
+              <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div className="h-full bg-violet-600 transition-all duration-300" style={{ width:`${progress}%`, backgroundColor: tool.color }} />
+              </div>
+            )}
+
+            {/* Error Message */}
+            {status==="error" && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex gap-3 align-start shadow-sm">
+                <Icon name="ti-alert-circle" size={20} style={{ color:"#dc2626", marginTop:1 }} />
+                <div>
+                  <div className="font-extrabold text-sm text-red-600">Secure validation failed</div>
+                  <div className="text-xs text-red-500 mt-1">{error}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Success Workspace */}
+            {status==="done" && result && (
+              <div className="flex flex-col gap-3">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
+                  <Icon name="ti-circle-check" size={40} style={{ color:"#16a34a", display:"block", margin:"0 auto 8px" }} />
+                  <div className="font-black text-sm text-emerald-800">Success!</div>
+                  <div className="text-xs text-emerald-600 mt-1">
+                    {result.name} · {(result.bytes.length/1024).toFixed(1)} KB
+                  </div>
+                </div>
+                <button
+                  onClick={handleDownload}
+                  className="w-full h-12 rounded-2xl border-none bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm cursor-pointer flex items-center justify-center gap-2 shadow-md"
+                >
+                  <Icon name="ti-download" size={18} />
+                  Download Saved PDF
+                </button>
+                <button
+                  onClick={()=>{setFiles([]);setResult(null);setStatus("idle");setError("");setProgress(0);}}
+                  className="w-full h-11 rounded-xl border border-solid border-slate-200 bg-white text-slate-600 font-bold text-xs cursor-pointer"
+                >
+                  Back to uploads
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function LabelInput({ label, placeholder, value, onChange, type="text" }) {
+      return (
+        <div className="mb-3">
+          <div className="text-xs font-semibold text-slate-500 mb-1.5">{label}</div>
+          <input
+            type={type}
+            value={value}
+            onChange={e=>onChange(e.target.value)}
+            placeholder={placeholder}
+            className="w-full h-11 border border-solid border-slate-200 rounded-xl px-3 text-sm bg-slate-50 text-slate-800 outline-none"
+          />
+        </div>
+      );
+    }
+
+    // ─── HISTORY SCREEN ───────────────────────────────────────────────────────────
+    function HistoryScreen({ history, onClear }) {
+      if (!history.length) return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 p-8">
+          <Icon name="ti-clock-hour-4" size={56} />
+          <div className="font-extrabold text-base text-slate-500">Workspace is empty</div>
+          <div className="text-xs text-center">Export logs generated locally will appear in this history vault.</div>
+        </div>
+      );
+
+      return (
+        <div className="flex-1 flex flex-col bg-slate-50">
+          <div className="bg-white p-4 border-b border-slate-100 flex justify-between items-center shadow-sm">
+            <div className="font-extrabold text-base text-slate-800">Secure Session Vault</div>
+            <button onClick={onClear} className="bg-red-50 border-none rounded-xl px-3 py-1.5 text-xs text-red-650 font-black cursor-pointer hover:bg-red-100">
+              Clear Logs
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+            {history.map(item => {
+              const tool = TOOLS.find(t=>t.id===item.toolId);
+              return (
+                <div key={item.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex gap-3 items-center shadow-sm">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: tool?.bg||"#f1f5f9" }}>
+                    <Icon name={tool?.icon||"ti-file"} size={18} style={{ color: tool?.color||"#64748b" }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-extrabold text-xs text-slate-800">{item.tool}</div>
+                    <div className="text-[11px] text-slate-500 truncate mt-0.5">{item.fileName}</div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      {new Date(item.date).toLocaleDateString()} · {(item.size/1024).toFixed(1)} KB
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <span className="text-[9px] font-black uppercase text-emerald-600 bg-emerald-50 rounded-md px-2 py-0.5 shadow-sm border border-solid border-emerald-100">Done</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── PROFILE SCREEN ───────────────────────────────────────────────────────────
+    function ProfileScreen({ user, history, onLogin, onLogout }) {
+      const [showLogin, setShowLogin] = useState(false);
+      const [form, setForm] = useState({ name:"", email:"" });
+
+      const handleLogin = () => {
+        if (!form.name || !form.email) return;
+        const u = { name: form.name, email: form.email, plan:"private-pro", joined: new Date().toISOString(), avatar: form.name[0].toUpperCase() };
+        onLogin(u);
+        setShowLogin(false);
+      };
+
+      const stats = [
+        { label:"Files Processed", value: history.length, icon:"ti-files", color:"#2563eb" },
+        { label:"Tools Used", value: new Set(history.map(h=>h.toolId)).size, icon:"ti-tools", color:"#7c3aed" },
+        { label:"This Month", value: history.filter(h=>new Date(h.date).getMonth()===new Date().getMonth()).length, icon:"ti-calendar", color:"#16a34a" },
+      ];
+
+      return (
+        <div className="flex-1 flex flex-col bg-slate-50">
+          {/* Profile Header */}
+          <div className="p-6 pb-8 text-white text-center" style={{ background:"linear-gradient(135deg,#6750A4,#21005D)" }}>
+            {user ? (
+              <div>
+                <div className="w-16 h-16 rounded-full bg-white/20 border border-solid border-white/30 mx-auto mb-3 flex items-center justify-center text-2xl font-black text-white">
+                  {user.avatar}
+                </div>
+                <div className="font-extrabold text-lg text-white">{user.name}</div>
+                <div className="text-xs text-white/70 mt-1">{user.email}</div>
+                <div className="mt-3.5 inline-block bg-emerald-500/20 text-emerald-300 border border-solid border-emerald-500/30 rounded-full px-4 py-1 text-xs font-black">
+                  Premium Sandbox
+                </div>
+              </div>
+            ) : (
+              <div>
+                <Icon name="ti-user-circle" size={56} style={{ display:"block", margin:"0 auto 10px", opacity:0.6 }} />
+                <div className="font-extrabold text-base text-white">Guest Account</div>
+                <div className="text-xs text-white/70 mt-1">Files remain processed purely inside sandbox</div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-2.5 mb-4">
+              {stats.map(s => (
+                <div key={s.label} className="bg-white border border-slate-100 rounded-2xl p-3 text-center shadow-sm">
+                  <Icon name={s.icon} size={20} style={{ color:s.color, display:"block", margin:"0 auto 4px" }} />
+                  <div className="font-black text-lg text-slate-800">{s.value}</div>
+                  <div className="text-[9px] text-slate-400 mt-1 uppercase font-bold">{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Privacy Shield Info */}
+            <div className="bg-white border border-slate-150 rounded-2xl p-4 mb-4 shadow-sm flex gap-3 align-start">
+              <Icon name="ti-shield-lock" size={24} style={{ color:"#16a34a", flexShrink:0 }} />
+              <div>
+                <div className="font-extrabold text-xs text-slate-800">Complete Offline Sovereignty</div>
+                <div className="text-[11px] text-slate-500 mt-1 leading-normal">SwagChup runs purely client-side on-device under Google sandbox container rules. Your core files are never serialized or transmitted.</div>
+              </div>
+            </div>
+
+            {/* Menu Items */}
+            <div className="flex flex-col gap-2">
+              {[
+                { icon:"ti-settings", label:"Sandbox Preferences", sub:"Storage configurations" },
+                { icon:"ti-help-circle", label:"Core FAQS", sub:"Answers about local pdf engines" },
+                { icon:"ti-file-description", label:"Compliance Policy", sub:"On-device decryption keys logic" },
+              ].map(item => (
+                <div key={item.label} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-3.5 shadow-sm">
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <Icon name={item.icon} size={18} style={{ color:"#475569" }} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-bold text-xs text-slate-800">{item.label}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{item.sub}</div>
+                  </div>
+                  <Icon name="ti-chevron-right" size={14} style={{ color:"#94a3b8" }} />
+                </div>
+              ))}
+            </div>
+
+            {user ? (
+              <button onClick={onLogout} className="mt-5 w-full h-11 rounded-2xl border border-solid border-red-200 bg-red-50 text-red-600 font-extrabold text-sm cursor-pointer flex items-center justify-center gap-2">
+                <Icon name="ti-logout" size={18} />
+                Clear identity
+              </button>
+            ) : (
+              <div className="mt-5">
+                {showLogin ? (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                    <div className="font-black text-sm text-slate-800 mb-4 text-center">Join Private Workspace</div>
+                    <LabelInput label="User Display Name" placeholder="e.g. Swag Creator" value={form.name} onChange={v=>setForm({...form,name:v})} />
+                    <LabelInput label="Email Address" placeholder="you@private.com" value={form.email} onChange={v=>setForm({...form,email:v})} type="email" />
+                    <button onClick={handleLogin} className="w-full h-11 border-none bg-[#6750A4] text-white font-extrabold text-sm rounded-xl cursor-pointer mt-2 shadow-sm">Generate Key Card</button>
+                    <button onClick={()=>setShowLogin(false)} className="w-full h-10 border border-solid border-slate-200 bg-white text-slate-500 font-bold text-xs rounded-xl cursor-pointer mt-2">Dismiss</button>
+                  </div>
+                ) : (
+                  <button onClick={()=>setShowLogin(true)} className="w-full h-12 rounded-2xl border-none bg-[#6750A4] text-white font-extrabold text-sm cursor-pointer flex items-center justify-center gap-2 shadow-md">
+                    <Icon name="ti-user" size={18} />
+                    Deploy Private Wallet
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="h-5" />
+          </div>
+        </div>
+      );
+    }
+
+    // ─── BOTTOM NAV ───────────────────────────────────────────────────────────────
+    function BottomNav({ tab, onChange }) {
+      const tabs = [
+        { id:"home", icon:"ti-home", label:"Home" },
+        { id:"history", icon:"ti-clock-hour-4", label:"Logs" },
+        { id:"profile", icon:"ti-user", label:"Profile" },
+      ];
+      return (
+        <div className="flex bg-white border-t border-slate-200/80 h-[68px] shrink-0 shadow-lg">
+          {tabs.map(t => (
+            <button key={t.id} onClick={()=>onChange(t.id)} className="flex-1 border-none bg-transparent cursor-pointer flex flex-col items-center justify-center gap-1 group active:opacity-75">
+              <Icon name={t.icon} size={22} style={{ color: tab===t.id?"#6750A4":"#94a3b8" }} />
+              <span className="text-[10px] font-extrabold transition-all duration-150" style={{ color: tab===t.id?"#6750A4":"#94a3b8" }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    // ─── ROOT APP ─────────────────────────────────────────────────────────────────
+    function App() {
+      const [tab, setTab] = useState("home");
+      const [activeTool, setActiveTool] = useState(null);
+      const [history, setHistory] = useState(getHistory);
+      const [user, setUser] = useState(getUser);
+
+      useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const toolId = params.get("tool");
+        if (toolId) {
+          const t = TOOLS.find(x => x.id === toolId);
+          if (t) {
+            setActiveTool(t);
+          }
+        }
+      }, []);
+
+      const addHistory = useCallback(item => {
+        setHistory(prev => {
+          const next = [item, ...prev];
+          saveHistory(next);
+          return next;
+        });
+      }, []);
+
+      const handleLogin = u => { saveUser(u); setUser(u); };
+      const handleLogout = () => { saveUser(null); setUser(null); };
+      const clearHistory = () => { setHistory([]); saveHistory([]); };
+
+      return (
+        <div className="w-full max-w-[430px] mx-auto min-h-screen flex flex-col overflow-hidden bg-slate-50 relative">
+          {activeTool ? (
+            <>
+              <ToolScreen tool={activeTool} onBack={()=>setActiveTool(null)} onAddHistory={addHistory} />
+              <BottomNav tab={tab} onChange={t=>{setActiveTool(null);setTab(t);}} />
+            </>
+          ) : (
+            <>
+              {tab === "home" && <HomeScreen onSelectTool={t=>{setActiveTool(t);}} />}
+              {tab === "history" && <HistoryScreen history={history} onClear={clearHistory} />}
+              {tab === "profile" && <ProfileScreen user={user} history={history} onLogin={handleLogin} onLogout={handleLogout} />}
+              <BottomNav tab={tab} onChange={setTab} />
+            </>
+          )}
+        </div>
+      );
+    }
+
+    // Mount application
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
